@@ -1,0 +1,7 @@
+{
+  "name": "心语回响: 情感共鸣空间",
+  "description": "一个分享真实情感、获得情绪支持并通过动态视觉化与他人连接的协作空间。由 Gemini 提供共情指引。",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
