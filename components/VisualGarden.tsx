@@ -1,4 +1,3 @@
-
 import React, { useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { UserMood, EmotionType, MOOD_COLORS } from '../types';
@@ -68,24 +67,44 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
     const avoidWidth = 380;
     const avoidHeight = 130;
 
+    // --- 优化后的动态间距调整逻辑 ---
+    const count = moods.length;
+    
+    // 使用非线性缩放 (Logistic-like decay) 使其在心情极少或极多时都表现自然
+    // 数量多时，基础间隙(Padding)从 ~40 降至 ~10
+    const basePadding = 8 + (32 / (1 + count * 0.08)); 
+    
+    // 强度缩放系数：数量多时，大球会相应缩小以容纳更多节点，从 ~9 降至 ~3
+    const intensityScale = 2.8 + (6.2 / (1 + count * 0.05));
+
+    // 计算碰撞半径：用于力导向图，确保球体之间有物理间距
+    const getCollisionRadius = (d: any) => d.intensity * intensityScale + basePadding;
+    
+    // 计算视觉半径：实际绘制的大小，通常小于碰撞半径以留出视觉呼吸感
+    const getVisualRadius = (d: any) => (d.intensity * intensityScale * 0.65) + (basePadding * 0.4);
+
     // Simulation setup
     const simulation = d3.forceSimulation<any>(moods)
       .force("center", d3.forceCenter(centerX, centerY))
-      .force("charge", d3.forceManyBody().strength(-200))
-      .force("collide", d3.forceCollide().radius((d: any) => d.intensity * 8 + 30)) 
+      // 动态电荷力：节点越多，斥力越小，避免过度发散
+      .force("charge", d3.forceManyBody().strength(count > 20 ? -100 - (count * 2) : -250))
+      // 碰撞力：使用 getCollisionRadius 确保间距
+      .force("collide", d3.forceCollide().radius((d: any) => getCollisionRadius(d) * 1.05).iterations(2)) 
       .on("tick", () => {
         nodes.attr("transform", (d: any) => {
-          const r = d.intensity * 8 + 20; 
+          const r = getVisualRadius(d); 
+          // 边界限制
           let tx = Math.max(r, Math.min(width - r, d.x));
           let ty = Math.max(r, Math.min(height - r, d.y));
 
+          // 避让左上角标题区域
           if (tx < avoidWidth && ty < avoidHeight) {
             const distToRight = avoidWidth - tx;
             const distToBottom = avoidHeight - ty;
             if (distToRight < distToBottom) {
-              tx = avoidWidth;
+              tx = avoidWidth + r;
             } else {
-              ty = avoidHeight;
+              ty = avoidHeight + r;
             }
           }
 
@@ -110,8 +129,8 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
         const dy = centerY - d.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
         const jumpDist = 20;
-        const moveX = (dx / dist) * jumpDist;
-        const moveY = (dy / dist) * jumpDist;
+        const moveX = (dx / (dist || 1)) * jumpDist;
+        const moveY = (dy / (dist || 1)) * jumpDist;
 
         d3.select(this).select(".node-content")
           .transition()
@@ -125,11 +144,13 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
       })
       .on("mouseenter", function(event, d: any) {
         const node = d3.select(this);
+        const hoverR = getVisualRadius(d) * 1.5;
+        
         node.select(".aura-bg")
           .interrupt()
           .transition()
           .duration(400)
-          .attr("r", d.intensity * 8 + 28)
+          .attr("r", hoverR)
           .attr("opacity", 0.7);
 
         node.select(".main-circle")
@@ -173,14 +194,14 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
     // 1. Aura
     nodeContent.append("circle")
       .attr("class", "aura-bg")
-      .attr("r", (d: any) => d.intensity * 8 + 12)
+      .attr("r", (d: any) => getVisualRadius(d) * 1.2)
       .attr("fill", (d: any) => d.color)
       .attr("opacity", 0.15)
       .attr("filter", "url(#glow)");
 
     // 2. Track
     nodeContent.append("circle")
-      .attr("r", (d: any) => d.intensity * 5 + 10)
+      .attr("r", (d: any) => getVisualRadius(d))
       .attr("fill", "none")
       .attr("stroke", "rgba(255,255,255,0.05)")
       .attr("stroke-width", 2);
@@ -188,7 +209,7 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
     // 3. Progress Arc
     nodeContent.append("path")
       .attr("d", (d: any) => {
-        const r = d.intensity * 5 + 10;
+        const r = getVisualRadius(d);
         const arc = d3.arc()
           .innerRadius(r - 1.5)
           .outerRadius(r + 1.5)
@@ -201,7 +222,7 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
     // 4. Main Circle (The Lantern Core with Breathing effect)
     nodeContent.append("circle")
       .attr("class", "main-circle")
-      .attr("r", (d: any) => d.intensity * 5 + 5)
+      .attr("r", (d: any) => getVisualRadius(d) * 0.6)
       .attr("fill", (d: any) => d.color)
       .attr("stroke", "#fff")
       .attr("stroke-width", 2)
@@ -213,7 +234,7 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
       .attr("text-anchor", "middle")
       .attr("dy", ".35em")
       .attr("fill", "#fff")
-      .attr("font-size", "12px")
+      .attr("font-size", (d: any) => `${Math.max(9, getVisualRadius(d) * 0.45)}px`)
       .attr("font-weight", "bold")
       .attr("pointer-events", "none");
 
@@ -225,7 +246,7 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
 
     hoverLabels.append("text")
       .attr("text-anchor", "middle")
-      .attr("y", (d: any) => -(d.intensity * 8 + 30))
+      .attr("y", (d: any) => -(getVisualRadius(d) + 12))
       .attr("fill", "#fff")
       .attr("font-size", "10px")
       .attr("font-weight", "600")
@@ -239,10 +260,10 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
         const core = d3.select(this).select(".main-circle");
         
         const isSelected = d.id === selectedMoodId;
-        const baseDuration = 3500 - (d.intensity * 200); // 强度越高，频率越快
-        const pulseRange = d.intensity * 1.5 + (isSelected ? 10 : 4);
-        const baseRadius = d.intensity * 8 + 12;
-        const coreBaseRadius = d.intensity * 5 + 5;
+        const baseDuration = 4000 - (d.intensity * 250); // 强度越高，频率越快
+        const pulseRange = (d.intensity * 0.4) + (isSelected ? 12 : 5);
+        const baseRadius = getVisualRadius(d) * 1.2;
+        const coreBaseRadius = getVisualRadius(d) * 0.6;
 
         function cycle() {
           // 外围光晕脉动
@@ -250,28 +271,28 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
             .duration(baseDuration)
             .ease(d3.easeSinInOut)
             .attr("r", baseRadius + pulseRange)
-            .attr("opacity", isSelected ? 0.6 : 0.35)
+            .attr("opacity", isSelected ? 0.65 : 0.3)
             .transition()
             .duration(baseDuration)
             .ease(d3.easeSinInOut)
             .attr("r", baseRadius)
-            .attr("opacity", isSelected ? 0.3 : 0.15);
+            .attr("opacity", isSelected ? 0.35 : 0.15);
             
           // 核心灯火脉动（动态调整大小与透明度，模拟呼吸）
           core.transition()
             .duration(baseDuration)
             .ease(d3.easeSinInOut)
-            .attr("r", coreBaseRadius * 1.12) // 核心稍微膨胀
+            .attr("r", coreBaseRadius * 1.15) 
             .attr("stroke-opacity", 1)
-            .attr("stroke-width", isSelected ? 5 : 3.5)
+            .attr("stroke-width", isSelected ? 5 : 3)
             .attr("opacity", 1) 
             .transition()
             .duration(baseDuration)
             .ease(d3.easeSinInOut)
-            .attr("r", coreBaseRadius) // 核心收缩
+            .attr("r", coreBaseRadius) 
             .attr("stroke-opacity", 0.4)
             .attr("stroke-width", isSelected ? 2.5 : 1.5)
-            .attr("opacity", 0.65)
+            .attr("opacity", 0.7)
             .on("end", cycle);
         }
         cycle();
@@ -505,7 +526,7 @@ const VisualGarden: React.FC<VisualGardenProps> = ({ moods, onEcho, onComment, c
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
                   </svg>
-                  发表回响
+                  撰写回响
                 </button>
               </>
             )}
