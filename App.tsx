@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import VisualGarden from './components/VisualGarden';
 import EmpathyGuide, { EmpathyGuideHandle } from './components/EmpathyGuide';
@@ -16,17 +15,24 @@ const BG_MUSIC_URL = "https://cdn.pixabay.com/audio/2022/05/27/audio_1808f3030c.
 
 const App: React.FC = () => {
   const [moods, setMoods] = useState<UserMood[]>(INITIAL_MOODS);
-  const [collectiveMessage, setCollectiveMessage] = useState<string>("空间很安静，等待着第一声心语的回响。");
+  const [collectiveMessage, setCollectiveMessage] = useState<string>("正在倾听星空下的低语...");
   const [activeTab, setActiveTab] = useState<'garden' | 'feed'>('garden');
   const [isMusicPlaying, setIsMusicPlaying] = useState(false);
   const [volume, setVolume] = useState(0.4);
-  const [currentUserName, setCurrentUserName] = useState<string>(() => localStorage.getItem('user_nickname') || '');
+  const [currentUserName, setCurrentUserName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('user_nickname') || '';
+    } catch {
+      return '';
+    }
+  });
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const empathyGuideRef = useRef<EmpathyGuideHandle | null>(null);
   const feedScrollRef = useRef<HTMLDivElement>(null);
 
   const sanitizeMessage = (text: string) => {
+    if (!text) return "";
     return text
       .replace(/\*\*|\*|_/g, '') 
       .replace(/[\(\（].*?[\)\）]/g, '') 
@@ -35,9 +41,14 @@ const App: React.FC = () => {
   };
 
   const updateCollectiveSoul = useCallback(async (currentMoods: UserMood[]) => {
-    const moodStrings = currentMoods.map(m => m.emotion);
-    const rawMessage = await analyzeEmotionalLandscape(moodStrings);
-    setCollectiveMessage(sanitizeMessage(rawMessage));
+    try {
+      const moodStrings = currentMoods.map(m => m.emotion);
+      const rawMessage = await analyzeEmotionalLandscape(moodStrings);
+      setCollectiveMessage(sanitizeMessage(rawMessage));
+    } catch (err) {
+      console.error("Failed to update collective soul:", err);
+      setCollectiveMessage("每一盏灯火都各有归处。");
+    }
   }, []);
 
   const toggleMusic = () => {
@@ -63,7 +74,10 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    updateCollectiveSoul(INITIAL_MOODS);
+    // 延迟初始化，确保所有 DOM 和垫片都就绪
+    const timer = setTimeout(() => {
+      updateCollectiveSoul(moods);
+    }, 500);
     
     const audio = new Audio(BG_MUSIC_URL);
     audio.loop = true;
@@ -74,42 +88,19 @@ const App: React.FC = () => {
       audio.play().then(() => {
         setIsMusicPlaying(true);
       }).catch((err) => {
-        console.warn("Autoplay still blocked:", err);
+        console.warn("Autoplay blocked, waiting for user interaction");
       });
       window.removeEventListener('click', attemptAutoplay);
     };
 
     window.addEventListener('click', attemptAutoplay);
 
-    const interval = setInterval(() => {
-        const randomEmotions = Object.values(EmotionType);
-        const randomEmotion = randomEmotions[Math.floor(Math.random() * randomEmotions.length)];
-        const names = ['凯文', '米娜', '奥利', '苏菲', '悠木', '哲也'];
-        const messages = ['在远方送出一个祝福', '此刻的风很温柔', '想念一个老朋友', '终于下班了', '生活总有光'];
-        const name = names[Math.floor(Math.random() * names.length)];
-        const msg = messages[Math.floor(Math.random() * messages.length)];
-        
-        const newMood: UserMood = {
-            id: Math.random().toString(36).substr(2, 9),
-            name: name,
-            emotion: randomEmotion,
-            intensity: Math.floor(Math.random() * 5) + 3,
-            color: MOOD_COLORS[randomEmotion],
-            message: msg,
-            timestamp: Date.now(),
-            echoCount: 0,
-            comments: []
-        };
-
-        setMoods(prev => [...prev.slice(-19), newMood]);
-    }, 45000);
-
     return () => {
-      clearInterval(interval);
+      clearTimeout(timer);
       audio.pause();
       window.removeEventListener('click', attemptAutoplay);
     };
-  }, [updateCollectiveSoul]);
+  }, []);
 
   const handleNewMood = (name: string, emotion: EmotionType, intensity: number, message: string) => {
     const newMood: UserMood = {
@@ -124,9 +115,10 @@ const App: React.FC = () => {
       comments: []
     };
     
-    // Auto-identify user name globally
     setCurrentUserName(name);
-    localStorage.setItem('user_nickname', name);
+    try {
+      localStorage.setItem('user_nickname', name);
+    } catch {}
 
     setMoods(prev => {
         const updated = [...prev, newMood];
@@ -155,10 +147,9 @@ const App: React.FC = () => {
       timestamp: Date.now()
     };
     
-    // Also sync the name if they just commented and didn't have one
     if (!currentUserName && author) {
       setCurrentUserName(author);
-      localStorage.setItem('user_nickname', author);
+      try { localStorage.setItem('user_nickname', author); } catch {}
     }
 
     setMoods(prev => prev.map(m => 
@@ -247,7 +238,6 @@ const App: React.FC = () => {
                         }}
                       />
                     </div>
-                    <p className="text-[8px] text-slate-600 text-center italic tracking-tight">拖动滑块调节心语环境音</p>
                   </div>
                </div>
              </div>
@@ -279,7 +269,7 @@ const App: React.FC = () => {
           </div>
 
           <div className="text-slate-400 flex items-center gap-2 text-xs bg-white/5 px-4 py-2.5 rounded-full border border-white/5">
-            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
             {moods.length} 位灵魂正相连
           </div>
         </div>
@@ -306,17 +296,15 @@ const App: React.FC = () => {
                 className="bg-slate-900/40 rounded-3xl border border-white/5 p-8 h-full overflow-y-auto custom-scrollbar shadow-inner relative"
               >
                 <div className="absolute left-[2.4rem] top-8 bottom-8 w-[1px] bg-gradient-to-b from-blue-500/50 via-indigo-500/30 to-transparent z-0" />
-                
                 <div className="space-y-12 relative z-10">
                   {[...moods].reverse().map((mood, idx) => (
                     <div key={mood.id} className="flex gap-8 group/item animate-in fade-in slide-in-from-bottom-6 duration-700" style={{ animationDelay: `${idx * 0.05}s` }}>
-                      
                       <div className="flex flex-col items-center shrink-0 w-12">
-                        <div className="text-[10px] text-slate-500 font-mono font-bold mb-3 uppercase tracking-tighter opacity-60 group-hover/item:opacity-100 transition-opacity">
+                        <div className="text-[10px] text-slate-500 font-mono font-bold mb-3 uppercase tracking-tighter opacity-60">
                           {formatTime(mood.timestamp)}
                         </div>
                         <div 
-                          className="w-4 h-4 rounded-full ring-4 ring-slate-950 transition-all duration-500 group-hover/item:scale-150 z-10"
+                          className="w-4 h-4 rounded-full ring-4 ring-slate-950 z-10"
                           style={{ 
                             backgroundColor: mood.color,
                             boxShadow: `0 0 15px ${mood.color}88`
@@ -326,14 +314,6 @@ const App: React.FC = () => {
 
                       <div className="flex-1 pb-4">
                         <div className="bg-white/[0.03] p-6 rounded-[2rem] border border-white/5 hover:border-white/10 hover:bg-white/[0.06] transition-all duration-500 shadow-lg relative group-hover/item:-translate-y-1">
-                          
-                          <div 
-                            className="absolute top-4 right-4 text-[40px] opacity-[0.03] select-none pointer-events-none group-hover/item:opacity-[0.08] transition-opacity"
-                            style={{ color: mood.color }}
-                          >
-                             {mood.emotion.charAt(0)}
-                          </div>
-
                           <div className="flex items-center justify-between mb-4">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-sm" style={{ backgroundColor: mood.color + '44', border: `1px solid ${mood.color}44` }}>
@@ -344,60 +324,14 @@ const App: React.FC = () => {
                                 {mood.emotion}
                               </span>
                             </div>
-                            
-                            {mood.echoCount ? (
-                              <div className="flex items-center gap-1.5 text-pink-400/80">
-                                <span className="text-[10px] font-bold">{mood.echoCount}</span>
-                                <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" viewBox="0 0 20 20" fill="currentColor">
-                                  <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
-                                </svg>
-                              </div>
-                            ) : null}
                           </div>
-
-                          <p className="text-slate-200 italic text-xl font-serif leading-relaxed line-clamp-3 group-hover/item:line-clamp-none transition-all">
+                          <p className="text-slate-200 italic text-xl font-serif leading-relaxed">
                             “{mood.message}”
                           </p>
-
-                          {mood.comments && mood.comments.length > 0 && (
-                            <div className="mt-4 pt-4 border-t border-white/5 space-y-2">
-                              {mood.comments.slice(0, 2).map(c => (
-                                <div key={c.id} className="text-[11px] text-slate-400 italic">
-                                  <span className="font-bold text-slate-300 mr-2">{c.author}:</span>
-                                  {c.text}
-                                </div>
-                              ))}
-                              {mood.comments.length > 2 && (
-                                <div className="text-[9px] text-slate-500 uppercase">还有 {mood.comments.length - 2} 条评论...</div>
-                              )}
-                            </div>
-                          )}
-
-                          <div className="mt-4 pt-4 border-t border-white/5 flex items-center gap-4 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                             <button 
-                               onClick={() => handleEcho(mood.id)}
-                               className="text-[9px] uppercase tracking-widest font-bold text-slate-400 hover:text-pink-400 transition-colors"
-                             >
-                               传递共鸣
-                             </button>
-                             <div className="w-1 h-1 rounded-full bg-slate-800" />
-                             <button className="text-[9px] uppercase tracking-widest font-bold text-slate-400 hover:text-blue-400 transition-colors">
-                               分享此瞬
-                             </button>
-                          </div>
                         </div>
                       </div>
                     </div>
                   ))}
-                  
-                  {moods.length === 0 && (
-                    <div className="h-full flex flex-col items-center justify-center text-slate-600 space-y-4">
-                       <div className="w-12 h-12 rounded-full border border-dashed border-slate-700 animate-spin-slow" />
-                       <p className="font-serif italic text-sm tracking-wide">时间在此刻停滞，等待一段心声...</p>
-                    </div>
-                  )}
-
-                  <div className="h-12 w-full bg-gradient-to-t from-slate-900 to-transparent sticky bottom-0 pointer-events-none" />
                 </div>
               </div>
             )}
@@ -417,13 +351,6 @@ const App: React.FC = () => {
       <footer className="px-8 py-4 bg-slate-950/80 backdrop-blur-md border-t border-white/5 flex justify-between items-center text-[11px] text-slate-600 uppercase tracking-widest z-30">
         <div className="flex items-center gap-2">
           <span>&copy; 2024 心语回响</span>
-          <span className="text-slate-800">|</span>
-          <span className="italic">每一朵云都有它的归宿</span>
-        </div>
-        <div className="flex gap-6">
-          <span className="hover:text-slate-400 cursor-pointer transition-colors">灵魂隐私</span>
-          <span className="hover:text-slate-400 cursor-pointer transition-colors">社区和谐</span>
-          <span className="hover:text-slate-400 cursor-pointer transition-colors">关于这里</span>
         </div>
       </footer>
     </div>

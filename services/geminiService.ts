@@ -1,10 +1,27 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 
-// Initialize with the API key from environment variables
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// 辅助函数：极其安全地获取 AI 实例
+const getAiInstance = () => {
+  try {
+    // 优先从 window 对象检查，这是浏览器环境中最稳妥的办法
+    const env = (window as any).process?.env || {};
+    const apiKey = env.API_KEY || (typeof process !== 'undefined' ? process.env.API_KEY : undefined);
+
+    if (!apiKey || apiKey === "undefined" || apiKey === "") {
+      console.warn("Gemini API_KEY is missing or empty. AI logic will be skipped.");
+      return null;
+    }
+    return new GoogleGenAI({ apiKey });
+  } catch (e) {
+    console.error("Failed to initialize AI instance:", e);
+    return null;
+  }
+};
 
 export const getEmpathyResponse = async (userMood: string, userMessage: string) => {
+  const ai = getAiInstance();
+  if (!ai) return "我在这里，在这片静谧中倾听。你的心声已被接收。";
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -26,8 +43,10 @@ export const getEmpathyResponse = async (userMood: string, userMessage: string) 
 };
 
 export const getDeepChatResponse = async (history: { role: 'user' | 'model', parts: [{ text: string }] }[]) => {
+  const ai = getAiInstance();
+  if (!ai) return "在这场心灵的漫步中，我一直都在。";
+
   try {
-    // Upgrading to gemini-3-pro-preview for complex emotional reasoning tasks
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: history,
@@ -48,6 +67,9 @@ export const getDeepChatResponse = async (history: { role: 'user' | 'model', par
 };
 
 export const analyzeEmotionalLandscape = async (moods: string[]) => {
+  const ai = getAiInstance();
+  if (!ai || moods.length === 0) return "一片浩瀚的星空，每一盏灯火都各有归处。";
+
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
@@ -56,13 +78,13 @@ export const analyzeEmotionalLandscape = async (moods: string[]) => {
       
       要求：
       1. 禁止使用任何 Markdown 符号（严禁出现 ** 或 * 等）。
-      2. 只返回隐喻句子本身，严禁提供任何解释、注脚或关于情绪对应关系的说明（不要出现“注：”或括号内容）。
+      2. 只返回隐喻句子本身，严禁提供任何解释。
       3. 不要包含引号。`,
       config: {
         temperature: 0.7,
       }
     });
-    return response.text || "如同细雨后的初晴，万物在静默中生长。";
+    return response.text?.trim() || "如同细雨后的初晴，万物在静默中生长。";
   } catch (error) {
     return "一片浩瀚的星空，每一盏灯火都各有归处。";
   }
